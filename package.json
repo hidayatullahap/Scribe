@@ -2,10 +2,42 @@
 	"name": "@hidayatullahap/scribe",
 	"version": "2.3.0",
 	"description": "Persistent, fully-typed, automatically-replicated player data for Roblox Luau, built on ProfileStore. Includes roblox-ts types.",
+	"main": "src/init.luau",
+	"types": "src/index.d.ts",
+	"typings": "src/index.d.ts",
+	"files": [
+		"src",
+		"licenses",
+		"NOTICE"
+	],
+	"keywords": [
+		"roblox-ts",
+		"roblox",
+		"luau",
+		"datastore",
+		"profilestore",
+		"player-data",
+		"replication"
+	],
+	"author": "ericplane",
 	"license": "MIT",
-	"repository": "github:hidayatullahap/Scribe",
-	"files": ["src/**/*.luau", "index.d.ts", "scripts/postinstall.js", "LICENSE", "NOTICE"],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/hidayatullahap/Scribe"
+	},
+	"bugs": {
+		"url": "https://github.com/hidayatullahap/Scribe/issues"
+	},
+	"homepage": "https://ericplane.github.io/Scribe/",
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
-		"postinstall": "node ./scripts/postinstall.js"
+		"check-types": "tsc --noEmit -p tsconfig.json"
+	},
+	"devDependencies": {
+		"@rbxts/compiler-types": "3.0.0-types.0",		"@rbxts/types": "^1.0.903",
+		"roblox-ts": "^3.0.0",
+		"typescript": "^5.9.3"
 	}
 }

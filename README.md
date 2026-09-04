@@ -11,6 +11,17 @@
 Scribe = "ericplane/scribe@2.3.0"
 ```
 
+```bash
+# roblox-ts (npm)
+npm install @hidayatullahap/scribe
+```
+
+```ts
+// roblox-ts: the Luau sources ship in `src` with types in
+// `src/index.d.ts`, so the package entry point is typed directly.
+import Scribe from "@hidayatullahap/scribe";
+```
+
 - **Fully typed.** A type-solver-generated accessor tree types your data end to end (`data.Coins.Increment(50)`, nested containers, arrays, and datatype fields), checked at compile time.
 - **Schemas all the way down.** `Scribe.ArrayOf` and `Scribe.DictOf` give array and dictionary *entries* a schema, so `data.Plots[1].Origin` is a typed `CFrame` that packs to 13 bytes, with per-element bounds and size caps.
 - **Replication for free.** Schema-compressed batched diffs stream to clients over a pluggable transport, and you read the same data on the client with the same API, with no RemoteEvents to wire up.

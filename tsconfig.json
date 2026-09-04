@@ -1,0 +1,14 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "commonjs",
+		"moduleResolution": "Node",
+		"strict": true,
+		"noLib": true,
+		"forceConsistentCasingInFileNames": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"typeRoots": ["node_modules/@rbxts"]
+	},
+	"include": ["src/index.d.ts"]
+}

@@ -1,14 +1,10 @@
 // Scribe – type declarations for use with roblox-ts.
 //
-// How to use:
-//   1. Copy the Scribe `src` Luau files into your project (for example under
-//      `src/shared/Scribe`, synced with Rojo).
-//   2. Point your import at the Scribe module and keep this file beside it so
-//      roblox-ts picks it up (an `init.luau` pairs with an `index.d.ts`).
-//   3. Build a bundle once, then use `.Server` on the server and `.Client` on
-//      the client, from the same shared module.
+// This file pairs with `init.luau` (roblox-ts resolves `init.luau` to
+// `index.d.ts`), so the package entry point is typed with no extra setup:
 //
-//   import Scribe from "shared/Scribe";
+//   npm install @hidayatullahap/scribe
+//   import Scribe from "@hidayatullahap/scribe";
 //   const bundle = Scribe({ Template: { Coins: 0 }, ProfileStoreIndex: "PlayerData", ProfileKeyPrefix: "PLAYER_" });
 //   bundle.Server.WaitForData(player);
 //
