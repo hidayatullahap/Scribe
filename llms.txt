@@ -1,0 +1,207 @@
+# Scribe – llms.txt (for LLMs, not humans)
+
+> Package: `@hidayatullahap/scribe` v2.3.0 – persistent, fully typed, auto-replicated player data for Roblox, built on ProfileStore. Entry: `src/init.luau`, types: `src/index.d.ts`. Source of truth on conflict: `src/index.d.ts`. Docs: https://ericplane.github.io/Scribe/
+
+## 1. Install and import (roblox-ts only)
+
+```bash
+npm install @hidayatullahap/scribe
+```
+
+```ts
+import Scribe from "@hidayatullahap/scribe";
+```
+
+One shared module builds the bundle. Both server and client import it (`core/shared/data` in the example below):
+
+```ts
+import Scribe from "@hidayatullahap/scribe";
+
+export interface DataTemplate {
+    Coins: number;
+    Settings: {
+        Music: boolean;
+    };
+}
+
+const bundle = Scribe<DataTemplate>({
+    Template: {
+        Coins: 0,
+        Settings: {
+            Music: true,
+        },
+    },
+    ProfileStoreIndex: "PlayerData",
+    ProfileKeyPrefix: "PLAYER_",
+});
+
+export const ServerData = bundle.Server;
+export const ClientData = bundle.Client;
+
+export type PlayerData = Scribe.PlayerData<DataTemplate>;
+
+export default bundle;
+```
+
+Server use:
+
+```ts
+import { ServerData } from "core/shared/data";
+
+const Players = game.GetService("Players");
+
+Players.PlayerAdded.Connect((player) => {
+    const [data] = ServerData.WaitForData(player);
+    if (data !== undefined) {
+        data.Coins.Increment(50);
+    }
+});
+```
+
+Client use:
+
+```ts
+import { ClientData } from "core/shared/data";
+
+if (ClientData.WaitForData(60)) {
+    ClientData.Coins.Observe((coins) => {
+        print(`Coins: ${coins}`);
+    });
+}
+```
+
+## 2. Typing model (how generics flow)
+
+- `Template` object type `T` flows into `ScribeOptions<T>`, then into `Bundle<T> = { Server: ServerData<T>; Client: ClientData<T> }`.
+- Each field becomes an accessor: `PlayerData<T> = { [K in keyof T]: DataNode<T[K]> }`.
+- `DataNode<T>` = `ScribeValue<T>` for leaf values, `ScribeValue<T>` plus child accessors for nested tables.
+- Leaf values (no children): `string`, `number`, `boolean`, `BigValue`, arrays, maps, Roblox datatypes (`Vector3`, `CFrame`, `Color3`, `UDim2`, etc.).
+- Core verbs on every `ScribeValue<T>`: `Get()`, `Set(v)`, `Update(fn)`, `Clone()`, `Default()`, `Observe(fn)` (fires at once, then on change), `Changed(fn)` (fires only on change). Returns `Disconnect` function for `Observe`/`Changed`/`On*` listeners.
+- Luau-only detail (wire buffers, metatable brands) is typed `unknown`/`any` here. Do not import Luau internals.
+
+Name the tree in your own types (matches the quickstart above):
+
+```ts
+export type PlayerData = Scribe.PlayerData<DataTemplate>;
+```
+
+## 3. Template declarators (field builders)
+
+| Call | Reads back as | Rule |
+|---|---|---|
+| `Scribe.Int(0, { Min?, Max? })` | `number` | Whole numbers. Out-of-range clamps by default. |
+| `Scribe.Number(0, { Min?, Max?, Precision? })` | `number` | Floats. `Precision` narrows wire bytes only; server keeps full value. |
+| `Scribe.String("", { MaxLength? })` | `string` | `MaxLength` counts bytes, not letters. Over-long writes trim. |
+| `Scribe.Enum("Common", ["Common","Rare"])` | `string` | Default must be one of the members. |
+| `Scribe.Big(0, { Min?, Max? })` | `BigValue` (`{ M, E, Short(), ToNumber() }`) | For values past 2^53. Use `Multiply`/`Divide`, not `Increment`. |
+| `Scribe.Flags(["Music","Sfx"])` | `string[]` (enabled names) | Up to 32 named booleans. Use `Enable(name)` / `Disable(name)`. |
+| `Scribe.Timed(false)` | `T` | Value clears to default after timer. Use `SetTimed(v, seconds)`, `ExtendTimed(s)`, `Active()`. |
+| `Scribe.Derived(output, ["Xp"], fn)` | `T` | Read-only. Compute fn must be pure (no yield, no random, no clock). Never `Set` it; write the inputs. |
+| `Scribe.Optional(Scribe.String(""))` | `T \| undefined` | Leaves only. No default; reads `undefined` until set. `Set(undefined)` clears. Never wrap `Timed`, `Dynamic`, or containers. |
+| `Scribe.Dynamic(() => os.time())` | return type of fn | Runs once per new profile. Fn must be pure. Cannot see the player; use `OnPlayerInit` for player-based defaults. |
+| `Scribe.ArrayOf(shape, { MaxItems?, Evict? })` | `T[]` | Entries share one shape. `Insert(v, index?)`, `Remove(index?)`, `RemoveValue(v)`, `Find(v)`, `OnInsert`/`OnRemove`. |
+| `Scribe.DictOf(shape, { MaxKeys? })` | `{ [key: string]: T }` | Missing keys auto-create from shape default on write. `OnKeyAdded`/`OnKeyRemoved`. |
+| `Scribe.MapOf("string", v)` / `("integer", v)` | `Map<K, V>` | Key type is fixed. Same key events as dict. |
+| `Scribe.SetOf("a")` | `string[]` | Unique members. `Add(v)`, `Has(v)`, `RemoveValue(v)`, `Clear()`, `Count()`. |
+| `Scribe.ServerOnly(v)` / `Scribe.Shared(v)` / `Scribe.Session(v)` | `T` | Visibility: server-only never replicates; shared is visible to all; session resets each join. |
+| Datatypes: `Scribe.Vector3(v3)`, `Vector2`, `Vector3int16`, `Vector2int16`, `CFrame`, `Color3`, `BrickColor`, `UDim`, `UDim2`, `Rect`, `NumberRange`, `NumberSequence`, `ColorSequence`, `DateTime`, `EnumItem`, `Font`, `PhysicalProperties` | same type | Packed on the wire. Treat as leaves. |
+
+Plain values work with no rules (`Coins: 0`), nested plain tables group fields (`Stats = { Deaths: 0 }`).
+
+## 4. Server (`bundle.Server`)
+
+```ts
+import { ServerData } from "core/shared/data";
+
+// Wait (yields). Always guard undefined.
+const [data, reason] = ServerData.WaitForData(player, 60);
+if (data === undefined) return; // player-left, still-loading, load-failed, etc.
+data.Coins.Increment(50);
+```
+
+- `ServerData.Get(player)` and `ServerData[player]` – no wait, throws while loading. Use only after `WaitForData` succeeds.
+- `ServerData.GetState(player)` – `["Loading"|"Ready"|"SessionEnded", detail?]`.
+- Writes: `Get/Set/Update/Increment(n)/Decrement(n)/Toggle()`; numbers clamp per `Min/Max` unless `BoundsPolicy: "Reject"` (then throws).
+- Grouping: `ServerData.Batch(player, () => {...})` (one diff), `ServerData.Transaction(player, fn)` (all-or-nothing, returns `[ok, reason?]`).
+- Saving: `ServerData.Flush(player, { Force?, Timeout? })`, `ServerData.GetSaveInfo(player)` (`{ Dirty, LastSaveAt?, LastResult? }`), `ServerData.OnSave`, `ServerData.SessionEnded`.
+- Offline and versions: `GetOffline(userId)`, `UpdateOffline(userId, fn)`, `ListVersions(userId, limit?)`, `GetVersion(userId, id)`, `RestoreVersion(userId, id)`, `Erase(userId)` (GDPR), `Export(userId)` (returns JSON string).
+- Leaderboards: `GetLeaderboard(name, limit?)`, `GetMyRank(player, name)`, `OnLeaderboard`.
+- Shop: `PromptPurchase(player, name)`, `PromptGift(buyer, product, recipientId)`, `GetProductState(player, name)` (`purchasable|owned|paid-random-restricted|policy-pending|not-loaded`), `Owns/OwnsAsync/ObserveOwned/GrantPerk/RevokePerk`, `Purchase(player, spec)` with `{ Cost: { Path, Amount }, ItemId, Grant?, IdempotencyKey? }`, `RecordPurchase`, `GetPurchases`, `HandleReceipt`/`TryHandleReceipt` (only if you keep your own receipt handler + `OwnReceipts: false`).
+- Cooldowns: `OnCooldown(player, key, seconds)` returns `[ok, remaining]`, `PeekCooldown`, `ClearCooldown`, `OnCooldownEnded`.
+- Trading: `ServerData.Exchange.Attempt(playerA, basketA, playerB, basketB)`, `Open/Discard/Settle/Redirect`. Paths must be allow-listed in `Exchangeable`.
+- Messaging: `SendMessage(userId, msg)`, `OnMessage`.
+- End: `ServerData.Stop()`. Escape hatches: `ServerData.Raw`, `ServerData.ProfileStore`, `ServerData.ServerStore`.
+
+## 5. Client (`bundle.Client`)
+
+```ts
+import { ClientData } from "core/shared/data";
+
+ClientData.Coins.Observe((coins) => { label.Text = tostring(coins); });
+
+// One-off read at startup – gate it:
+if (ClientData.IsReady() || ClientData.WaitForData(30)) {
+  print(ClientData.Coins.Get());
+}
+```
+
+- Reactive reads need no gate (`Observe` re-fires when the first sync lands). One-off `Get` at startup does.
+- Client writes are local-only (optimistic UI). Server writes overwrite them. To change data for real, use commands (section 7).
+- `ClientData.Request(name, ...args)` and `ClientData.RequestOnce(name, key, ...args)` yield until first sync, then wait up to `RequestTimeout` for the server reply. Also yielding: `Owns`, `OwnsAsync`, `ObserveOwned`, `GetSaveInfo`, `GetGiftCredits`, `GetPurchases`. Gate all of these on `IsReady()`/`WaitForData()`.
+- Ownership/shop read side: `Owns(key)`, `OwnsAsync(key, timeout?)`, `ObserveOwned(key, fn)`, `GetProductInfo/GetPrice/GetProductInfoAsync/GetPriceAsync/ObserveProductInfo/PrefetchProductInfo/RefreshProductInfo`, `GetProductState/ObserveProductState`.
+- Metadata: `GetServiceStatus()` (`Healthy|Degraded|Outage`), `OnServiceStatus`, `GetShared(playerOrId)`, `OnSharedChanged`, `GetLeaderboard/GetMyRank/OnLeaderboard`, `GetSaveInfo()`, `GetGiftCredits()`, `GetPurchases(filter?)`.
+- Tests: `ClientData.Mock(values?, state?)`, `ClientData.MockCommand(name, handler)`.
+- End: `ClientData.Stop()`. Escape hatches: `ClientData.Raw`, `ClientData.ServerStore`.
+
+## 6. Options (`ScribeOptions<T>`)
+
+Required: `Template`, `ProfileStoreIndex`, `ProfileKeyPrefix`. Common rest:
+
+| Option | Default | Notes |
+|---|---|---|
+| `SaveInterval` | 300 | Seconds between autosaves. |
+| `Mode` | `"Live"` | `"Mock"` = memory only (tests); `"NoSave"` = load real, never save. |
+| `Migrations` | – | `Map<version, (data) => void>` for shape changes. |
+| `Products` / `Passes` / `Perks` | – | Robux shop. Declaring `Products` takes over `ProcessReceipt` unless `OwnReceipts: false`. |
+| `Leaderboards` | – | `Map<name, { Stat, Limit?, RefreshInterval?, Replicate? }>`. |
+| `BoundsPolicy` | `"Clamp"` | `"Reject"` throws on out-of-range instead. |
+| `WipeGuardPolicy` / `SchemaPolicy` | `"Warn"` | `"Block"`/`"Reject"` for strict mode. |
+| `CommandRateLimit` / `RequestTimeout` | – | Spam guard and max seconds for `Request` reply. |
+| `Transport` | `"Default"` | Custom `ScribeTransport` or default. |
+| `LoadFailurePolicy` | – | `"Kick"` or `"Wait"`. Plus `LoadTimeout`, message strings. |
+| `Economy` / `PurchaseLog` / `Gift*` | – | Analytics fields, caps, gift cooldown/TTL. |
+| `LogLevel` (`Debug|Info|Warn|Error|Fatal`) / `LogRingSize` | – | Diagnostics; see `GetRecentLogs`, `GetMetrics`, `GetBudgetSnapshot`. |
+| `OnPlayerInit(player, raw, isNew, migration)` / `OnPlayerLeaving(player, data, reason)` | – | Per-player hooks. Only place for player-based defaults. |
+| `DevMode`, `UseMock`, `DontSave`, `ResetData` | – | Local testing shortcuts. Prefer `Mode`. |
+
+Typed, so misspelled keys fail `check-types`.
+
+## 7. Commands (client-to-server calls)
+
+```ts
+// server, once at startup:
+ServerData.Command("BuyPotion", { Args: ["number"], Idempotent: true }, (player, count) => {
+  const data = ServerData.Get(player);
+  if (data.Coins.Get() < 25 * (count as number)) return [false, "not enough coins"];
+  data.Coins.Decrement(25 * (count as number));
+  return [true];
+});
+
+// client:
+const [ok, reason] = ClientData.Request("BuyPotion", 3) as [boolean, string?];
+```
+
+- `Args` is a runtime arg-type list; keep handler validation too (range, integer check).
+- `Request` failures (`"timeout"`, `"rate-limited"`, `"not-ready"`, `"unknown-command"`, `"bad-args"`, ...) share the `[false, reason]` shape with handler `false` returns – check `Scribe.RequestReason` / `GetRecentLogs` to tell them apart when it matters.
+- `RequestOnce(name, idempotencyKey, ...)` dedupes retries.
+
+## 8. Rules LLMs must follow (gotchas)
+
+- Client bundle must be imported on the client or no sync happens (`CLIENT_HANDSHAKE_TIMEOUT`). Same shared module on both sides.
+- `WaitForData` can return `undefined`. Reasons: `load-failed | migration-failed | session-ended | player-left | shutdown | still-loading | timeout` (see `Scribe.Reason`). `player-left` needs no handling.
+- `ServerData.Get(player)` throws while loading. Never call before `WaitForData` succeeds.
+- Client `Set`/`Increment` never reach the server. Use `Command` + `Request`.
+- Field names must avoid method names (`Get`, `Set`, `Count`, `Insert`, `Remove`, `Observe`, ...) at any depth, and root fields must avoid `Owns`, `Request`, `Mock`, `Raw`. Any root starting with `_Scribe` is rejected.
+- `Derived` fields are read-only; `Optional` has no default and cannot wrap `Timed`/`Dynamic`/containers; `Enum` default must be a member; `Dynamic` factory must be pure and cannot use the player.
+- Studio play-test with no saves plus `[ProfileStore]: Roblox API services unavailable` in output means Studio API access is off – in-memory fallback, not a bug. Use `Mode: "Mock"` for deliberate isolation.
+- New solver needed for full type checking in Studio (`UseNewLuauTypeSolver = Enabled`); runtime works without it.
