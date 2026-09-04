@@ -8,7 +8,8 @@
 	"files": [
 		"src",
 		"licenses",
-		"NOTICE"
+		"NOTICE",
+		"llms.txt"
 	],
 	"keywords": [
 		"roblox-ts",
