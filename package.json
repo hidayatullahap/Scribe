@@ -1,0 +1,11 @@
+{
+	"name": "@hidayatullahap/scribe",
+	"version": "2.3.0",
+	"description": "Persistent, fully-typed, automatically-replicated player data for Roblox Luau, built on ProfileStore. Includes roblox-ts types.",
+	"license": "MIT",
+	"repository": "github:hidayatullahap/Scribe",
+	"files": ["src/**/*.luau", "index.d.ts", "scripts/postinstall.js", "LICENSE", "NOTICE"],
+	"scripts": {
+		"postinstall": "node ./scripts/postinstall.js"
+	}
+}
